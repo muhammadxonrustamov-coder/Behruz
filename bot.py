@@ -21,14 +21,20 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 db = Database(DATABASE_URL)
 
+
+def fmt(cents: int) -> str:
+    """Sentlarni dollar formatida ko'rsatish"""
+    return "{:.2f}".format(cents / 100)
+
 # States
 (
     MAIN_MENU, CATALOG, CART,
     ADMIN_MENU, ADMIN_ADD_NAME, ADMIN_ADD_PRICE, ADMIN_ADD_PHOTO, ADMIN_ADD_CONFIRM,
     ADMIN_REDUCE_DEBT_AMOUNT,
     ADMIN_ADD_DEBT_AMOUNT,
+    ADMIN_BROADCAST,
     CLIENT_PHONE
-) = range(11)
+) = range(12)
 
 
 def is_admin(user_id: int) -> bool:
@@ -49,7 +55,8 @@ def admin_menu_keyboard():
     buttons = [
         [KeyboardButton("➕ Mahsulot qo'shish"), KeyboardButton("📦 Mahsulotlar")],
         [KeyboardButton("👥 Mijozlar"), KeyboardButton("💳 Qarzlar")],
-        [KeyboardButton("📋 Buyurtmalar"), KeyboardButton("🔙 Asosiy menyu")],
+        [KeyboardButton("📋 Buyurtmalar"), KeyboardButton("📢 Xabar yuborish")],
+        [KeyboardButton("🔙 Asosiy menyu")],
     ]
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
@@ -136,7 +143,7 @@ async def show_catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📦 Mahsulotlar katalogi:")
     for product in products:
         keyboard = await get_product_keyboard(user_id, product['id'])
-        caption = f"*{product['name']}*\n💵 Narx: {product['price']:,} $"
+        caption = f"*{product['name']}*\n💵 Narx: {fmt(product['price'])} $"
         if product['photo_id']:
             try:
                 await update.message.reply_photo(
@@ -163,8 +170,8 @@ async def show_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total = sum(item['price'] * item['quantity'] for item in cart_items)
     text = "🛒 *Savatchangiz:*\n\n"
     for item in cart_items:
-        text += f"• {item['name']} x{item['quantity']} = {item['price'] * item['quantity']:,} $\n"
-    text += f"\n💰 *Jami: {total:,} $*"
+        text += f"• {item['name']} x{item['quantity']} = {fmt(item['price'] * item['quantity'])} $\n"
+    text += f"\n💰 *Jami: {fmt(total)} $*"
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Buyurtma berish", callback_data="checkout")],
@@ -181,7 +188,7 @@ async def show_my_debt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = "💰 *Sizning qarzingiz:*\n\n"
     if debt > 0:
-        text += f"Jami qarz: *{debt:,} $*"
+        text += f"Jami qarz: *{fmt(debt)} $*"
     else:
         text += "✅ Qarzingiz yo'q!"
 
@@ -199,9 +206,9 @@ async def show_my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = "📋 *Buyurtmalaringiz:*\n\n"
     for order in orders[:10]:
-        text += f"#{order['id']} — {order['total_amount']:,} $"
+        text += f"#{order['id']} — {fmt(order['total_amount'])} $"
         if order['debt_amount'] > 0:
-            text += f" | 💰 Qarz: {order['debt_amount']:,} $"
+            text += f" | 💰 Qarz: {fmt(order['debt_amount'])} $"
         text += f"\n📅 {order['created_at'].strftime('%d.%m.%Y %H:%M')}\n\n"
 
     await update.message.reply_text(text, parse_mode='Markdown')
@@ -252,8 +259,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db.clear_cart(user_id)
 
         text = f"✅ *Buyurtma #{order_id} qabul qilindi!*\n\n"
-        text += f"💵 Jami: {total:,} $\n"
-        text += f"💰 Qarz: {total:,} $\n\n"
+        text += f"💵 Jami: {fmt(total)} $\n"
+        text += f"💰 Qarz: {fmt(total)} $\n\n"
         text += "Admin siz bilan bog'lanadi."
 
         await query.edit_message_text(text, parse_mode='Markdown')
@@ -264,19 +271,19 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_info = await db.get_user(user_id)
                 items_text = ""
                 for item in cart_items:
-                    items_text += f"  • {item['name']} x{item['quantity']} = {item['price'] * item['quantity']:,} $\n"
+                    items_text += f"  • {item['name']} x{item['quantity']} = {fmt(item['price'] * item['quantity'])} $\n"
                 await context.bot.send_message(
                     admin_id,
                     "🛍 *Yangi buyurtma #{}*\n"
                     "👤 {}\n"
                     "📱 {}\n\n"
                     "📦 Mahsulotlar:\n{}\n"
-                    "💵 Jami: {:,} $".format(
+                    "💵 Jami: {} $".format(
                         order_id,
                         user_info['full_name'],
                         user_info.get('phone') or "noma'lum",
                         items_text,
-                        total
+                        fmt(total)
                     ),
                     parse_mode='Markdown'
                 )
@@ -300,8 +307,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['add_debt_user_id'] = target_user_id
         context.user_data['add_debt_user_name'] = target_user['full_name']
         await query.edit_message_text(
-            "👤 *{}*\n💰 Joriy qarz: *{:,} $*\n\nQo'shilishi kerak bo'lgan summani kiriting:".format(
-                target_user['full_name'], target_user['total_debt']
+            "👤 *{}*\n💰 Joriy qarz: *{} $*\n\nQo'shilishi kerak bo'lgan summani kiriting:".format(
+                target_user['full_name'], fmt(target_user['total_debt'])
             ),
             parse_mode='Markdown'
         )
@@ -314,8 +321,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['reduce_debt_user_id'] = target_user_id
         context.user_data['reduce_debt_user_name'] = target_user['full_name']
         await query.edit_message_text(
-            "👤 *{}*\n💰 Joriy qarz: *{:,} $*\n\nKamaytiriladigan summani kiriting:".format(
-                target_user['full_name'], target_user['total_debt']
+            "👤 *{}*\n💰 Joriy qarz: *{} $*\n\nKamaytiriladigan summani kiriting:".format(
+                target_user['full_name'], fmt(target_user['total_debt'])
             ),
             parse_mode='Markdown'
         )
@@ -342,6 +349,11 @@ async def handle_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await admin_show_debts(update, context)
     elif text == "📋 Buyurtmalar":
         return await admin_show_orders(update, context)
+    elif text == "📢 Xabar yuborish":
+        await update.message.reply_text(
+            "📢 Yubormoqchi bo'lgan xabaringizni yozing:\n\n(Barcha foydalanuvchilarga boradi)"
+        )
+        return ADMIN_BROADCAST
     elif text == "🔙 Asosiy menyu":
         await update.message.reply_text("Asosiy menyu:", reply_markup=main_menu_keyboard(True))
         return MAIN_MENU
@@ -356,8 +368,8 @@ async def admin_show_debts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     total_debt = sum(d['total_debt'] for d in debtors)
     await update.message.reply_text(
-        "💳 *Qarzlar ro'yxati ({} ta mijoz)*\nUmumiy: *{:,} $*".format(
-            len(debtors), total_debt
+        "💳 *Qarzlar ro'yxati ({} ta mijoz)*\nUmumiy: *{} $*".format(
+            len(debtors), fmt(total_debt)
         ),
         parse_mode='Markdown'
     )
@@ -366,10 +378,10 @@ async def admin_show_debts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("➖ Qarzni kamaytir", callback_data=f"reduce_debt_{debtor['id']}")]
         ])
-        text = "👤 *{}*\n📱 {}\n💰 Qarz: *{:,} $*".format(
+        text = "👤 *{}*\n📱 {}\n💰 Qarz: *{} $*".format(
             debtor['full_name'],
             debtor.get('phone') or "noma'lum",
-            debtor['total_debt']
+            fmt(debtor['total_debt'])
         )
         await update.message.reply_text(text, parse_mode='Markdown', reply_markup=keyboard)
 
@@ -385,9 +397,11 @@ async def admin_reduce_debt_amount(update: Update, context: ContextTypes.DEFAULT
         return ADMIN_MENU
 
     try:
-        amount = int(update.message.text.replace(" ", "").replace(",", ""))
+        amount = round(float(update.message.text.replace(" ", "").replace(",", ".")) * 100)
+        if amount <= 0:
+            raise ValueError
     except ValueError:
-        await update.message.reply_text("❗ To'g'ri raqam kiriting:")
+        await update.message.reply_text("❗ To'g'ri raqam kiriting (masalan: 5 yoki 1.5):")
         return ADMIN_REDUCE_DEBT_AMOUNT
 
     if amount <= 0:
@@ -397,7 +411,7 @@ async def admin_reduce_debt_amount(update: Update, context: ContextTypes.DEFAULT
     target_user = await db.get_user(target_user_id)
     if amount > target_user['total_debt']:
         await update.message.reply_text(
-            "❗ Qarz miqdori {} $. Undan ko'p kirita olmaysiz:".format(target_user['total_debt'])
+            "❗ Qarz miqdori {} $. Undan ko'p kirita olmaysiz:".format(fmt(target_user['total_debt']))
         )
         return ADMIN_REDUCE_DEBT_AMOUNT
 
@@ -408,8 +422,8 @@ async def admin_reduce_debt_amount(update: Update, context: ContextTypes.DEFAULT
     context.user_data.pop('reduce_debt_user_name', None)
 
     await update.message.reply_text(
-        "✅ *{}* ning qarzi *{:,} $* ga kamaytirildi!\n💰 Qolgan qarz: *{:,} $*".format(
-            target_user_name, amount, updated_user['total_debt']
+        "✅ *{}* ning qarzi *{} $* ga kamaytirildi!\n💰 Qolgan qarz: *{} $*".format(
+            target_user_name, fmt(amount), fmt(updated_user['total_debt'])
         ),
         parse_mode='Markdown',
         reply_markup=admin_menu_keyboard()
@@ -419,8 +433,8 @@ async def admin_reduce_debt_amount(update: Update, context: ContextTypes.DEFAULT
     try:
         await context.bot.send_message(
             target_user_id,
-            "✅ Sizning qarzingiz *{:,} $* ga kamaytirildi!\n💰 Qolgan qarz: *{:,} $*".format(
-                amount, updated_user['total_debt']
+            "✅ Sizning qarzingiz *{} $* ga kamaytirildi!\n💰 Qolgan qarz: *{} $*".format(
+                fmt(amount), fmt(updated_user['total_debt'])
             ),
             parse_mode='Markdown'
         )
@@ -441,7 +455,7 @@ async def admin_show_products(update: Update, context: ContextTypes.DEFAULT_TYPE
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🗑 O'chirish", callback_data=f"delete_product_{product['id']}")]
         ])
-        text = f"*{product['name']}*\n💵 {product['price']:,} $"
+        text = f"*{product['name']}*\n💵 {fmt(product['price'])} $"
         if product['photo_id']:
             await update.message.reply_photo(product['photo_id'], caption=text, parse_mode='Markdown', reply_markup=keyboard)
         else:
@@ -460,7 +474,7 @@ async def admin_show_clients(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     for user in users:
         debt = user.get('total_debt', 0) or 0
-        debt_text = "💰 Qarz: {:,} $".format(debt) if debt > 0 else "Qarz yo'q"
+        debt_text = "💰 Qarz: {} $".format(fmt(debt)) if debt > 0 else "Qarz yo'q"
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("➕ Qarz qo'sh", callback_data="add_debt_{}".format(user['id']))]
         ])
@@ -482,11 +496,11 @@ async def admin_show_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"📋 So'nggi {len(orders)} ta buyurtma:")
     for order in orders:
-        text = "#{} — 👤 {}\n💵 {:,} $ | 💰 Qarz: {:,} $\n📅 {}".format(
+        text = "#{} — 👤 {}\n💵 {} $ | 💰 Qarz: {} $\n📅 {}".format(
             order['id'],
             order['full_name'],
-            order['total_amount'],
-            order['debt_amount'],
+            fmt(order['total_amount']),
+            fmt(order['debt_amount']),
             order['created_at'].strftime('%d.%m.%Y %H:%M')
         )
         await update.message.reply_text(text)
@@ -504,15 +518,19 @@ async def admin_add_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def admin_add_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        price = int(update.message.text.replace(" ", "").replace(",", ""))
+        price_str = update.message.text.replace(" ", "").replace(",", ".")
+        price = round(float(price_str) * 100)  # sentlarda saqlash
+        if price <= 0:
+            raise ValueError
         context.user_data['new_product']['price'] = price
+        display_price = price / 100
         await update.message.reply_text(
-            f"✅ Narx: *{price:,} $*\n\nRasmini yuboring yoki /skip bosing:",
+            "✅ Narx: *{:.2f} $*\n\nRasmini yuboring yoki /skip bosing:".format(display_price),
             parse_mode='Markdown'
         )
         return ADMIN_ADD_PHOTO
     except ValueError:
-        await update.message.reply_text("❗ To'g'ri narx kiriting (faqat raqam):")
+        await update.message.reply_text("❗ To'g'ri narx kiriting (masalan: 1.5 yoki 0.9):")
         return ADMIN_ADD_PRICE
 
 
@@ -533,8 +551,8 @@ async def skip_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_product_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     product = context.user_data['new_product']
-    text = "📦 *Mahsulot ma'lumotlari:*\n\nNom: *{}*\nNarx: *{:,} $*".format(
-        product['name'], product['price']
+    text = "📦 *Mahsulot ma'lumotlari:*\n\nNom: *{}*\nNarx: *{} $*".format(
+        product['name'], fmt(product['price'])
     )
     if not product.get('photo_id'):
         text += "\nRasm: yo'q"
@@ -585,9 +603,11 @@ async def admin_add_debt_amount(update: Update, context: ContextTypes.DEFAULT_TY
         return ADMIN_MENU
 
     try:
-        amount = int(update.message.text.replace(" ", "").replace(",", ""))
+        amount = round(float(update.message.text.replace(" ", "").replace(",", ".")) * 100)
+        if amount <= 0:
+            raise ValueError
     except ValueError:
-        await update.message.reply_text("❗ To'g'ri raqam kiriting:")
+        await update.message.reply_text("❗ To'g'ri raqam kiriting (masalan: 5 yoki 1.5):")
         return ADMIN_ADD_DEBT_AMOUNT
 
     if amount <= 0:
@@ -601,8 +621,8 @@ async def admin_add_debt_amount(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data.pop('add_debt_user_name', None)
 
     await update.message.reply_text(
-        "✅ *{}* nomiga *{:,} $* qarz qo'shildi!\n💰 Jami qarz: *{:,} $*".format(
-            target_user_name, amount, updated_user['total_debt']
+        "✅ *{}* nomiga *{} $* qarz qo'shildi!\n💰 Jami qarz: *{} $*".format(
+            target_user_name, fmt(amount), fmt(updated_user['total_debt'])
         ),
         parse_mode='Markdown',
         reply_markup=admin_menu_keyboard()
@@ -612,8 +632,8 @@ async def admin_add_debt_amount(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         await context.bot.send_message(
             target_user_id,
-            "📋 Sizning hisobingizga *{:,} $* qarz qo'shildi.\n💰 Jami qarz: *{:,} $*".format(
-                amount, updated_user['total_debt']
+            "📋 Sizning hisobingizga *{} $* qarz qo'shildi.\n💰 Jami qarz: *{} $*".format(
+                fmt(amount), fmt(updated_user['total_debt'])
             ),
             parse_mode='Markdown'
         )
@@ -635,6 +655,65 @@ class HealthHandler(BaseHTTPRequestHandler):
 def run_health_server():
     port = int(os.getenv("PORT", 10000))
     HTTPServer(("0.0.0.0", port), HealthHandler).serve_forever()
+
+
+async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    users = await db.get_all_users()
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Yuborish", callback_data="broadcast_confirm"),
+            InlineKeyboardButton("❌ Bekor", callback_data="broadcast_cancel")
+        ]
+    ])
+
+    context.user_data['broadcast_text'] = text
+    await update.message.reply_text(
+        "📢 *Xabar ko'rinishi:*\n\n{}\n\n👥 {} ta foydalanuvchiga yuboriladi.\nTasdiqlaysizmi?".format(
+            text, len(users)
+        ),
+        parse_mode='Markdown',
+        reply_markup=keyboard
+    )
+    return ADMIN_BROADCAST
+
+
+async def broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "broadcast_cancel":
+        await query.edit_message_text("❌ Bekor qilindi.")
+        context.user_data.pop('broadcast_text', None)
+        return ADMIN_MENU
+
+    text = context.user_data.get('broadcast_text')
+    if not text:
+        await query.edit_message_text("❗ Xato. Qaytadan boshlang.")
+        return ADMIN_MENU
+
+    users = await db.get_all_users()
+    success = 0
+    failed = 0
+
+    await query.edit_message_text("⏳ Yuborilmoqda...")
+
+    for user in users:
+        try:
+            await context.bot.send_message(user['id'], text)
+            success += 1
+        except Exception:
+            failed += 1
+
+    context.user_data.pop('broadcast_text', None)
+    await query.edit_message_text(
+        "✅ Xabar yuborildi!\n👥 Muvaffaqiyatli: {} ta\n❌ Yuborilmadi: {} ta".format(
+            success, failed
+        )
+    )
+    return ADMIN_MENU
+
 
 async def post_init(application: Application):
     await db.connect()
@@ -686,6 +765,10 @@ def main():
             ADMIN_ADD_DEBT_AMOUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_debt_amount),
                 CallbackQueryHandler(callback_handler),
+            ],
+            ADMIN_BROADCAST: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast),
+                CallbackQueryHandler(broadcast_callback, pattern="^broadcast_"),
             ],
         },
         fallbacks=[CommandHandler("start", start)],
